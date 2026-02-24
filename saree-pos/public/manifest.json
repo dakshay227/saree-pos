@@ -1,0 +1,21 @@
+{
+  "name": "SareeOffline Point of Sale",
+  "short_name": "Saree PoS",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#1e3a8a",
+  "description": "Offline inventory and sales management for Saree exhibitions.",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/8146/8146003.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/8146/8146003.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
