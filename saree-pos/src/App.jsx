@@ -176,7 +176,9 @@ export default function App() {
     const newSaree = {
       id: Date.now().toString(),
       code: code,
-      type: formData.get('type'),
+      shopName: formData.get('shopName') || 'Unknown Shop',
+      shopCode: formData.get('shopCode') || 'N/A',
+      type: formData.get('type') || 'Cotton',
       cp: parseFloat(formData.get('cp')) || 0,
       mrp: parseFloat(formData.get('mrp')) || 0,
       asp60: parseFloat(formData.get('asp60')) || 0,
@@ -353,7 +355,7 @@ export default function App() {
     }
   };
 
-  // Handle CSV Upload based on New Format
+  // Handle CSV Upload based on NEW Format: Shop_Name | Shop_Code | CP | MRP | ASP60 | Product_Code | Item_Status
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -380,13 +382,15 @@ export default function App() {
           return result;
         };
 
-        const headers = parseCSVRow(rows[0]).map(h => h.toLowerCase().replace(/"/g, ''));
+        const headers = parseCSVRow(rows[0]).map(h => h.toLowerCase().replace(/"/g, '').trim());
         
-        const codeIdx = headers.findIndex(h => h.includes('code'));
-        const typeIdx = headers.findIndex(h => h.includes('type'));
+        // Find Column Indices based on the requested structure
+        const shopNameIdx = headers.findIndex(h => h.includes('shop_name') || h === 'shop name' || h === 'shopname');
+        const shopCodeIdx = headers.findIndex(h => h.includes('shop_code') || h === 'shop code' || h === 'shopcode');
+        const codeIdx = headers.findIndex(h => h.includes('product_code') || h === 'product code' || h === 'productcode' || h === 'code');
         const cpIdx = headers.findIndex(h => h === 'cp' || h.includes('cost'));
         const mrpIdx = headers.findIndex(h => h === 'mrp');
-        const aspIdx = headers.findIndex(h => h.includes('asp60'));
+        const aspIdx = headers.findIndex(h => h.includes('asp60') || h === 'asp');
         const statusIdx = headers.findIndex(h => h.includes('status'));
 
         if (codeIdx === -1) {
@@ -411,16 +415,17 @@ export default function App() {
             continue;
           }
 
-          let statusStr = statusIdx !== -1 ? values[statusIdx].toLowerCase().trim() : 'available';
+          let statusStr = statusIdx !== -1 && values[statusIdx] ? values[statusIdx].toLowerCase().trim() : 'available';
           if (!statusStr.includes('sold')) statusStr = 'available';
 
           newSarees.push({
             id: Date.now().toString() + i,
             code: code,
-            type: typeIdx !== -1 && values[typeIdx] ? values[typeIdx].replace(/"/g, '') : 'Cotton',
-            cp: cpIdx !== -1 ? parseFloat(values[cpIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
-            mrp: mrpIdx !== -1 ? parseFloat(values[mrpIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
-            asp60: aspIdx !== -1 ? parseFloat(values[aspIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
+            shopName: shopNameIdx !== -1 && values[shopNameIdx] ? values[shopNameIdx].replace(/"/g, '') : 'Unknown Shop',
+            shopCode: shopCodeIdx !== -1 && values[shopCodeIdx] ? values[shopCodeIdx].replace(/"/g, '') : 'N/A',
+            cp: cpIdx !== -1 && values[cpIdx] ? parseFloat(values[cpIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
+            mrp: mrpIdx !== -1 && values[mrpIdx] ? parseFloat(values[mrpIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
+            asp60: aspIdx !== -1 && values[aspIdx] ? parseFloat(values[aspIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
             status: statusStr,
             dateAdded: new Date().toISOString()
           });
@@ -535,9 +540,9 @@ export default function App() {
       {/* Bulk Upload Section */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
         <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
-          <Upload size={20} className="text-blue-600" /> Bulk Import from Excel
+          <Upload size={20} className="text-blue-600" /> Bulk Import from CSV
         </h3>
-        <p className="text-xs text-gray-600 mb-4">Columns should include: <b>Product_Code, Type, CP, MRP, ASP60, Item_Status</b>.</p>
+        <p className="text-xs text-gray-600 mb-4">Columns MUST include: <b>Shop_Name, Shop_Code, CP, MRP, ASP60, Product_Code, Item_Status</b>.</p>
         
         <label className="flex justify-center items-center w-full h-16 px-4 transition bg-blue-50 border-2 border-blue-300 border-dashed rounded-lg cursor-pointer hover:border-blue-400">
             <span className="flex items-center space-x-2 text-blue-700 font-bold">
@@ -565,6 +570,18 @@ export default function App() {
           <input name="type" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none" placeholder="e.g. Cotton" />
         </div>
         
+        <div className="flex gap-2 w-full">
+          <div className="flex-1 min-w-0">
+            <label className="block text-sm font-bold text-gray-900 mb-1">Shop Name</label>
+            <input name="shopName" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none" placeholder="e.g. Sharma Textiles" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <label className="block text-sm font-bold text-gray-900 mb-1">Shop Code</label>
+            <input name="shopCode" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none uppercase font-mono" placeholder="e.g. SHARMA01" />
+          </div>
+        </div>
+        
+        {/* Uses flex layout to squeeze tightly on narrow screens without overflowing */}
         <div className="flex gap-2 w-full">
           <div className="flex-1 min-w-0">
             <label className="block text-xs font-bold text-gray-900 mb-1">CP (Cost)</label>
@@ -602,7 +619,9 @@ export default function App() {
                   <span className="font-mono bg-gray-200 text-gray-900 px-2 py-1 rounded text-sm font-bold">{saree.code}</span>
                   {saree.status === 'sold' && <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-bold">SOLD</span>}
                 </div>
-                <h3 className={`font-bold ${saree.status === 'sold' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>{saree.type || 'Cotton'}</h3>
+                <h3 className={`font-bold ${saree.status === 'sold' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                  {saree.shopName} <span className="text-xs text-gray-500 font-mono font-normal ml-1">({saree.shopCode})</span>
+                </h3>
                 
                 <div className="flex gap-3 mt-2 text-sm">
                   <div className="bg-gray-50 px-2 py-1 rounded border border-gray-200">
@@ -691,14 +710,14 @@ export default function App() {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <span className="font-mono font-bold text-sm text-gray-900">{item.saree.code}</span>
-                      <p className="text-xs text-gray-500">{item.saree.type || 'Cotton'}</p>
+                      <p className="text-xs text-gray-500 truncate max-w-[180px]">{item.saree.shopName} ({item.saree.shopCode})</p>
                     </div>
-                    <button onClick={() => removeCartItem(idx)} className="text-red-500 p-1 bg-red-50 rounded">
+                    <button onClick={() => removeCartItem(idx)} className="text-red-500 p-1 bg-red-50 rounded shrink-0">
                       <X size={16} />
                     </button>
                   </div>
 
-                  {/* Price Selection */}
+                  {/* Price Selection - Flex container prevents overflow on narrow screens */}
                   <div className="flex gap-1 mt-2 w-full">
                     <button 
                       onClick={() => updateCartItemPrice(idx, 'MRP')}
@@ -840,6 +859,47 @@ export default function App() {
           {activeTab === 'log' && renderSalesLogView()}
         </div>
       </div>
+
+      {/* Payment Modal Overlay */}
+      {showPaymentModal && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 flex flex-col items-center shadow-2xl">
+            <h2 className="text-xl font-black text-gray-900 mb-1">Receive Payment</h2>
+            <p className="text-gray-500 mb-4 text-sm text-center">Amount due: <b className="text-gray-900 text-lg">₹{calculateCartTotal().toLocaleString()}</b></p>
+            
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 w-full flex flex-col items-center mb-6 justify-center">
+              <p className="text-sm text-gray-600 text-center mb-4">Select payment method received:</p>
+              <div className="flex w-full gap-2">
+                <button 
+                  onClick={() => setPaymentMethod('Cash')}
+                  className={`flex-1 py-3 rounded-lg font-bold transition-colors ${paymentMethod === 'Cash' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-200 text-gray-600'}`}
+                >
+                  CASH
+                </button>
+                <button 
+                  onClick={() => setPaymentMethod('UPI')}
+                  className={`flex-1 py-3 rounded-lg font-bold transition-colors ${paymentMethod === 'UPI' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-600'}`}
+                >
+                  UPI
+                </button>
+              </div>
+            </div>
+
+            <button 
+              onClick={completeSaleTransaction}
+              className="w-full bg-gray-900 text-white font-bold py-4 rounded-xl text-lg hover:bg-black mb-3 shadow-md"
+            >
+              Confirm Sale
+            </button>
+            <button 
+              onClick={() => setShowPaymentModal(false)}
+              className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-200"
+            >
+              Cancel Checkout
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Database Reset Confirmation Modal Overlay */}
       {showResetModal && (
