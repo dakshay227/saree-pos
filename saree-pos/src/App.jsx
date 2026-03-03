@@ -452,7 +452,55 @@ export default function App() {
     }
   };
 
-  // Handle CSV Upload based on NEW Format: Shop_Name | Shop_Code | CP | MRP | ASP60 | Product_Code | Item_Status
+
+  const parseCSV = (csvText) => {
+    const rows = [];
+    let currentRow = [];
+    let currentCell = '';
+    let insideQuotes = false;
+  
+    for (let i = 0; i < csvText.length; i++) {
+      const char = csvText[i];
+      const nextChar = csvText[i + 1];
+  
+      if (char === '"') {
+        if (insideQuotes && nextChar === '"') {
+          // It's an escaped quote ("") inside a quoted string
+          currentCell += '"';
+          i++; // Skip the next quote
+        } else {
+          // Toggle the insideQuotes flag
+          insideQuotes = !insideQuotes;
+        }
+      } else if (char === ',' && !insideQuotes) {
+        // End of the current cell
+        currentRow.push(currentCell.trim());
+        currentCell = '';
+      } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+        // End of the current row
+        if (char === '\r' && nextChar === '\n') {
+          i++; // Skip the \n if it's \r\n
+        }
+        currentRow.push(currentCell.trim());
+        rows.push(currentRow);
+        currentRow = [];
+        currentCell = '';
+      } else {
+        // Any other character
+        currentCell += char;
+      }
+    }
+  
+    // Add the very last cell and row if not empty
+    if (currentCell !== '' || currentRow.length > 0) {
+      currentRow.push(currentCell.trim());
+      rows.push(currentRow);
+    }
+  
+    // Optional: Filter out empty rows (e.g., trailing newlines)
+    return rows.filter(row => row.some(cell => cell.trim() !== ''));
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -461,25 +509,15 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const text = event.target.result;
-        const rows = text.split('\n');
-        const delimiter = text.includes('|') ? '|' : ',';
         
-        const parseCSVRow = (str) => {
-          const result = [];
-          let cell = '';
-          let inQuotes = false;
-          for (let i = 0; i < str.length; i++) {
-            const char = str[i];
-            if (char === '"' && str[i+1] === '"') { cell += '"'; i++; } 
-            else if (char === '"') { inQuotes = !inQuotes; }
-            else if (char === delimiter && !inQuotes) { result.push(cell.trim()); cell = ''; }
-            else { cell += char; }
-          }
-          result.push(cell.trim());
-          return result;
-        };
+        const rows = parseCSV(text);
 
-        const headers = parseCSVRow(rows[0]).map(h => h.toLowerCase().replace(/"/g, '').trim());
+        if (rows.length === 0) {
+            showNotification('Error: CSV file is empty.', 'error');
+            return;
+        }
+
+        const headers = rows[0].map(h => h.toLowerCase().trim());
         
         // Find Column Indices based on the requested structure
         const shopNameIdx = headers.findIndex(h => h.includes('shop_name') || h === 'shop name' || h === 'shopname');
@@ -500,10 +538,8 @@ export default function App() {
         let duplicateCount = 0;
 
         for (let i = 1; i < rows.length; i++) {
-          if (!rows[i].trim()) continue;
-
-          const values = parseCSVRow(rows[i]);
-          const code = values[codeIdx]?.replace(/"/g, '').toUpperCase();
+          const values = rows[i];
+          const code = values[codeIdx]?.toUpperCase();
           
           if (!code) continue;
 
@@ -518,8 +554,8 @@ export default function App() {
           newSarees.push({
             id: Date.now().toString() + i,
             code: code,
-            shopName: shopNameIdx !== -1 && values[shopNameIdx] ? values[shopNameIdx].replace(/"/g, '') : 'Unknown Shop',
-            shopCode: shopCodeIdx !== -1 && values[shopCodeIdx] ? values[shopCodeIdx].replace(/"/g, '') : 'N/A',
+            shopName: shopNameIdx !== -1 && values[shopNameIdx] ? values[shopNameIdx] : 'Unknown Shop',
+            shopCode: shopCodeIdx !== -1 && values[shopCodeIdx] ? values[shopCodeIdx] : 'N/A',
             cp: cpIdx !== -1 && values[cpIdx] ? parseFloat(values[cpIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
             mrp: mrpIdx !== -1 && values[mrpIdx] ? parseFloat(values[mrpIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
             asp60: aspIdx !== -1 && values[aspIdx] ? parseFloat(values[aspIdx].replace(/[^\d.-]/g, '')) || 0 : 0,
@@ -567,6 +603,23 @@ export default function App() {
     URL.revokeObjectURL(url);
     
     showNotification(`${filename} downloaded successfully!`);
+  };
+
+  const exportAvailableLabelsCSV = () => {
+    const availableSarees = sarees.filter(s => s.status === 'available');
+    
+    if (availableSarees.length === 0) {
+      showNotification('No available items to export for labels!', 'error');
+      return;
+    }
+
+    // Map to required format
+    const labelData = availableSarees.map(s => ({
+      Product_Code: s.code,
+      MRP: s.mrp
+    }));
+
+    exportToCSV(labelData, 'Available_Labels_Print');
   };
 
   // --- UI RENDER FUNCTIONS ---
@@ -693,12 +746,18 @@ export default function App() {
             <Download size={18} className="text-blue-600" /> Excel CSV Exports
           </h3>
           <p className="text-xs text-gray-700 mb-4">Download spreadsheet versions of your data for end of day accounting.</p>
-          <div className="flex gap-2">
-            <button onClick={() => exportToCSV(sales, 'Sales_Log')} className="flex-1 bg-green-50 text-green-800 border border-green-300 font-semibold py-2 rounded-lg hover:bg-green-100 transition-colors text-xs">
-              Export Sales
-            </button>
-            <button onClick={() => exportToCSV(sarees, 'Inventory_Master')} className="flex-1 bg-blue-50 text-blue-800 border border-blue-300 font-semibold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs">
-              Export Inventory
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <button onClick={() => exportToCSV(sales, 'Sales_Log')} className="flex-1 bg-green-50 text-green-800 border border-green-300 font-semibold py-2 rounded-lg hover:bg-green-100 transition-colors text-xs">
+                Export Sales
+              </button>
+              <button onClick={() => exportToCSV(sarees, 'Inventory_Master')} className="flex-1 bg-blue-50 text-blue-800 border border-blue-300 font-semibold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs">
+                Export Inventory
+              </button>
+            </div>
+            {/* Added Print Label Export Button */}
+            <button onClick={exportAvailableLabelsCSV} className="w-full bg-indigo-50 text-indigo-800 border border-indigo-300 font-semibold py-2 rounded-lg hover:bg-indigo-100 transition-colors text-xs flex justify-center items-center gap-2">
+              <Download size={14} /> Export Available Stock for Labels
             </button>
           </div>
         </div>
@@ -974,7 +1033,18 @@ export default function App() {
                       <span className="font-mono font-bold text-sm text-gray-900">{item.saree.code}</span>
                       <p className="text-xs text-gray-500 truncate max-w-[180px]">{item.saree.shopName} ({item.saree.shopCode})</p>
                     </div>
-                    <button onClick={() => removeCartItem(idx)} className="text-red-500 p-1 bg-red-50 rounded shrink-0">
+                    <button
+                      onClick={() => {
+                        const updatedSarees = [...sarees];
+                        const itemIndex = sarees.findIndex(s => s.code === item.saree.code);
+                        if(itemIndex > -1){
+                           updatedSarees[itemIndex].status = "available";
+                        }
+                        setSarees(updatedSarees);
+                        removeCartItem(idx);
+                      }}
+                      className="text-red-500 p-1 bg-red-50 rounded shrink-0 transition-colors hover:bg-red-100 hover:text-red-700"
+                    >
                       <X size={16} />
                     </button>
                   </div>
