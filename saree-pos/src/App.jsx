@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter, RefreshCcw } from 'lucide-react';
+import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter, RefreshCcw, Trash2 } from 'lucide-react';
 
 // --- Configuration ---
 const RESET_PASSWORD = "9999"; // Add your secret numeric PIN here
@@ -55,9 +55,11 @@ export default function App() {
   const [paymentMethod, setPaymentMethod] = useState('UPI'); 
   const [showResetModal, setShowResetModal] = useState(false); // Reset confirmation state
   const [extraDiscount, setExtraDiscount] = useState(0); 
+  const [itemToDelete, setItemToDelete] = useState(null); // State for deleting item modal
   
   // Inventory State
   const [inventoryFilter, setInventoryFilter] = useState('all'); // 'all', 'available', 'sold'
+  const [shopFilter, setShopFilter] = useState('all'); // Filter by shop name
 
   // Hidden Reset States
   const [resetPassword, setResetPassword] = useState('');
@@ -786,8 +788,14 @@ export default function App() {
   );
 
   const renderInventoryListView = () => {
-    // Apply Inventory Filter
-    const filteredSarees = sarees.filter(s => inventoryFilter === 'all' ? true : s.status === inventoryFilter);
+    // Apply Inventory and Shop Filters
+    const filteredSarees = sarees.filter(s => {
+      const statusMatch = inventoryFilter === 'all' ? true : s.status === inventoryFilter;
+      const shopMatch = shopFilter === 'all' ? true : s.shopName === shopFilter;
+      return statusMatch && shopMatch;
+    });
+
+    const uniqueShops = Array.from(new Set(sarees.map(s => s.shopName)));
 
     return (
       <div className="space-y-4 flex-1 w-full">
@@ -796,8 +804,8 @@ export default function App() {
             <Filter size={18} className="text-gray-500" />
         </div>
         
-        {/* Inventory Filter Toggle */}
-        <div className="flex bg-gray-200 p-1 rounded-lg shrink-0 mb-4 shadow-inner">
+        {/* Inventory Filter Toggles */}
+        <div className="flex bg-gray-200 p-1 rounded-lg shrink-0 mb-3 shadow-inner">
           <button onClick={() => setInventoryFilter('all')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${inventoryFilter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
             All ({sarees.length})
           </button>
@@ -808,6 +816,20 @@ export default function App() {
             Sold ({sarees.filter(s => s.status === 'sold').length})
           </button>
         </div>
+
+        {/* Shop Name Filter */}
+        {uniqueShops.length > 0 && (
+          <select
+            value={shopFilter}
+            onChange={(e) => setShopFilter(e.target.value)}
+            className="w-full p-3 mb-4 bg-white border border-gray-300 rounded-lg text-sm font-bold text-gray-700 outline-none shadow-sm"
+          >
+            <option value="all">All Shops / Vendors</option>
+            {uniqueShops.map(shop => (
+              <option key={shop} value={shop}>{shop}</option>
+            ))}
+          </select>
+        )}
 
         {filteredSarees.length === 0 ? (
           <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
@@ -820,11 +842,16 @@ export default function App() {
                   
                   <div className="flex justify-between items-start mb-1">
                     <span className="font-mono bg-gray-200 text-gray-900 px-2 py-1 rounded text-sm font-bold">{saree.code}</span>
-                    {saree.status === 'sold' ? (
-                        <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-bold">SOLD</span>
-                    ) : (
-                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-bold">AVAILABLE</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {saree.status === 'sold' ? (
+                          <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-bold">SOLD</span>
+                      ) : (
+                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-bold">AVAILABLE</span>
+                      )}
+                      <button onClick={() => setItemToDelete(saree)} className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                   
                   <h3 className={`font-bold ${saree.status === 'sold' ? 'text-gray-500' : 'text-gray-900'}`}>
@@ -1204,6 +1231,38 @@ export default function App() {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Item Confirmation Modal */}
+      {itemToDelete && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 flex flex-col items-center shadow-2xl border-2 border-red-500">
+            <div className="bg-red-100 p-3 rounded-full mb-3">
+               <Trash2 size={32} className="text-red-600" />
+            </div>
+            <h2 className="text-xl font-black text-gray-900 mb-1 text-center">Delete Item?</h2>
+            <p className="text-gray-500 mb-4 text-sm text-center">Are you sure you want to delete <b>{itemToDelete.code}</b> from inventory?</p>
+            
+            <div className="flex gap-3 w-full">
+              <button 
+                onClick={() => setItemToDelete(null)}
+                className="flex-1 bg-gray-100 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  setSarees(sarees.filter(s => s.id !== itemToDelete.id));
+                  showNotification(`Deleted ${itemToDelete.code} successfully.`);
+                  setItemToDelete(null);
+                }}
+                className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 shadow-md"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
