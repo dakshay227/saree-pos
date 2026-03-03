@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter } from 'lucide-react';
+import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter, RefreshCcw } from 'lucide-react';
 
 // --- Configuration ---
 const RESET_PASSWORD = "9999"; // Add your secret numeric PIN here
@@ -165,6 +165,54 @@ export default function App() {
     
     setShowResetModal(false);
     showNotification('All inventory and sales data cleared successfully.', 'success');
+  };
+
+  // --- DEVICE SYNC LOGIC ---
+
+  const handleExportBackup = () => {
+    if (sarees.length === 0 && sales.length === 0) {
+      showNotification('No data to backup!', 'error');
+      return;
+    }
+    const backupData = {
+      sarees: sarees,
+      sales: sales,
+      exportDate: new Date().toISOString()
+    };
+    
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `SareeApp_FullBackup_${new Date().toLocaleDateString().replace(/\//g, '-')}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    showNotification('Full database backup exported successfully!');
+  };
+
+  const handleRestoreBackup = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const backupData = JSON.parse(event.target.result);
+        
+        // Validate it's our backup file
+        if (backupData && Array.isArray(backupData.sarees) && Array.isArray(backupData.sales)) {
+          setSarees(backupData.sarees);
+          setSales(backupData.sales);
+          showNotification('Database fully restored from backup!', 'success');
+        } else {
+          showNotification('Invalid backup file format.', 'error');
+        }
+      } catch (err) {
+        showNotification('Failed to read the backup file.', 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset input
   };
 
   const handleAddSaree = (e) => {
@@ -621,16 +669,33 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-            <Download size={18} className="text-blue-600" /> End of Day Backup
+        {/* Database Sync / Backup & Restore Block */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-purple-200 mt-2">
+          <h3 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
+            <RefreshCcw size={18} /> Device Sync & Restore
           </h3>
-          <p className="text-sm text-gray-700 mb-4">Export offline data to a CSV file. (Sales export now includes CP & Profit).</p>
+          <p className="text-xs text-gray-700 mb-4">Transfer all inventory and sales data exactly as is to a new phone via JSON.</p>
           <div className="flex gap-2">
-            <button onClick={() => exportToCSV(sales, 'Sales_Log')} className="flex-1 bg-green-50 text-green-800 border border-green-300 font-semibold py-3 rounded-lg hover:bg-green-100 transition-colors text-sm">
+            <button onClick={handleExportBackup} className="flex-1 bg-purple-50 text-purple-800 border border-purple-300 font-semibold py-3 rounded-lg hover:bg-purple-100 transition-colors text-xs flex items-center justify-center gap-1">
+              <Download size={14} /> Create Backup
+            </button>
+            <label className="flex-1 bg-orange-50 text-orange-800 border border-orange-300 font-semibold py-3 rounded-lg hover:bg-orange-100 transition-colors text-xs flex items-center justify-center gap-1 cursor-pointer">
+              <Upload size={14} /> Restore
+              <input type="file" className="hidden" accept=".json" onChange={handleRestoreBackup} />
+            </label>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mt-2">
+          <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
+            <Download size={18} className="text-blue-600" /> Excel CSV Exports
+          </h3>
+          <p className="text-xs text-gray-700 mb-4">Download spreadsheet versions of your data for end of day accounting.</p>
+          <div className="flex gap-2">
+            <button onClick={() => exportToCSV(sales, 'Sales_Log')} className="flex-1 bg-green-50 text-green-800 border border-green-300 font-semibold py-2 rounded-lg hover:bg-green-100 transition-colors text-xs">
               Export Sales
             </button>
-            <button onClick={() => exportToCSV(sarees, 'Inventory_Master')} className="flex-1 bg-blue-50 text-blue-800 border border-blue-300 font-semibold py-3 rounded-lg hover:bg-blue-100 transition-colors text-sm">
+            <button onClick={() => exportToCSV(sarees, 'Inventory_Master')} className="flex-1 bg-blue-50 text-blue-800 border border-blue-300 font-semibold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs">
               Export Inventory
             </button>
           </div>
