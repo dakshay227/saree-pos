@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload } from 'lucide-react';
+import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter } from 'lucide-react';
 
 // --- Configuration ---
 const RESET_PASSWORD = "9999"; // Add your secret numeric PIN here
@@ -54,7 +54,11 @@ export default function App() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('UPI'); 
   const [showResetModal, setShowResetModal] = useState(false); // Reset confirmation state
+  const [extraDiscount, setExtraDiscount] = useState(0); 
   
+  // Inventory State
+  const [inventoryFilter, setInventoryFilter] = useState('all'); // 'all', 'available', 'sold'
+
   // Hidden Reset States
   const [resetPassword, setResetPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -152,6 +156,7 @@ export default function App() {
     setSarees([]);
     setSales([]);
     setCart([]);
+    setExtraDiscount(0);
     // Clear databases
     await setDBItem('saree_inventory', []);
     await setDBItem('saree_sales', []);
@@ -165,30 +170,53 @@ export default function App() {
   const handleAddSaree = (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const code = formData.get('code').toUpperCase();
     
-    // Prevent duplicate codes
-    if (sarees.some(s => s.code === code)) {
-      showNotification('This Product Code already exists!', 'error');
-      return;
+    const shopName = formData.get('shopName') || 'Unknown Shop';
+    const shopCode = (formData.get('shopCode') || 'N/A').toUpperCase();
+    const cp = parseFloat(formData.get('cp')) || 0;
+    const mrp = parseFloat(formData.get('mrp')) || 0;
+    const asp60 = parseFloat(formData.get('asp60')) || 0;
+    const quantity = parseInt(formData.get('quantity')) || 1;
+    const serialNo = formData.get('serialNo') || '01';
+    
+    // Reverse the ASP60 for the camouflage code
+    const reversedAsp = asp60.toString().split('').reverse().join('');
+    
+    const newSarees = [];
+    let duplicateCount = 0;
+
+    // Loop to generate multiple sarees based on the quantity
+    for (let i = 0; i < quantity; i++) {
+      const char = String.fromCharCode(97 + i); // 97 is 'a', 98 is 'b', etc.
+      const code = `${shopCode}SZ${reversedAsp}X${serialNo}${char}`;
+      
+      // Prevent exact duplicate codes
+      if (sarees.some(s => s.code === code) || newSarees.some(s => s.code === code)) {
+        duplicateCount++;
+        continue;
+      }
+
+      newSarees.push({
+        id: Date.now().toString() + Math.random().toString().slice(2, 8),
+        code: code,
+        shopName: shopName,
+        shopCode: shopCode,
+        type: 'Cotton', // Default fallback
+        cp: cp,
+        mrp: mrp,
+        asp60: asp60,
+        status: 'available',
+        dateAdded: new Date().toISOString()
+      });
     }
 
-    const newSaree = {
-      id: Date.now().toString(),
-      code: code,
-      shopName: formData.get('shopName') || 'Unknown Shop',
-      shopCode: formData.get('shopCode') || 'N/A',
-      type: formData.get('type') || 'Cotton',
-      cp: parseFloat(formData.get('cp')) || 0,
-      mrp: parseFloat(formData.get('mrp')) || 0,
-      asp60: parseFloat(formData.get('asp60')) || 0,
-      status: 'available',
-      dateAdded: new Date().toISOString()
-    };
-
-    setSarees([newSaree, ...sarees]);
-    showNotification(`Saree added! Code: ${code}`);
-    e.target.reset();
+    if (newSarees.length > 0) {
+      setSarees(prev => [...newSarees, ...prev]);
+      showNotification(`Added ${newSarees.length} items successfully! ${duplicateCount > 0 ? `(${duplicateCount} duplicates skipped)` : ''}`);
+      e.target.reset();
+    } else {
+      showNotification(`Failed to add. All ${duplicateCount} items were duplicates!`, 'error');
+    }
   };
 
   const handleScanInput = (codeToScan) => {
@@ -269,12 +297,16 @@ export default function App() {
     setCart(newCart);
   };
 
-  const calculateCartTotal = () => {
+  const getCartSubtotal = () => {
     return cart.reduce((total, item) => {
       if (item.selection === 'MRP') return total + (item.saree.mrp || 0);
       if (item.selection === 'ASP60') return total + (item.saree.asp60 || 0);
       return total + (parseFloat(item.customPrice) || 0);
     }, 0);
+  };
+
+  const getCartFinalTotal = () => {
+    return Math.max(0, getCartSubtotal() - (parseFloat(extraDiscount) || 0));
   };
 
   const completeSaleTransaction = () => {
@@ -283,6 +315,10 @@ export default function App() {
     const updatedSarees = [...sarees];
     const newSales = [];
     const timestamp = new Date().toLocaleString();
+    const timestampISO = new Date().toISOString();
+
+    const subtotal = getCartSubtotal();
+    const safeDiscount = parseFloat(extraDiscount) || 0;
 
     cart.forEach(cartItem => {
       const sIdx = updatedSarees.findIndex(s => s.code === cartItem.saree.code);
@@ -290,22 +326,33 @@ export default function App() {
         updatedSarees[sIdx] = { ...updatedSarees[sIdx], status: 'sold' };
       }
 
-      let finalPrice = cartItem.selection === 'MRP' ? cartItem.saree.mrp : 
+      let rawFinalPrice = cartItem.selection === 'MRP' ? cartItem.saree.mrp : 
                        cartItem.selection === 'ASP60' ? cartItem.saree.asp60 : 
                        parseFloat(cartItem.customPrice) || 0;
+                       
+      // Distribute discount proportionally to calculate accurate item profit
+      let itemDiscount = subtotal > 0 ? (rawFinalPrice / subtotal) * safeDiscount : 0;
+      let finalPrice = Math.round(rawFinalPrice - itemDiscount);
+                       
+      let cp = cartItem.saree.cp || 0;
+      let profit = finalPrice - cp;
 
       newSales.push({
         id: Date.now().toString() + Math.random().toString().slice(2, 8),
         sareeCode: cartItem.saree.code,
+        cp: cp,
         salePrice: finalPrice,
+        profit: profit,
         paymentMethod: paymentMethod,
-        saleDate: timestamp
+        saleDate: timestamp,
+        timestampISO: timestampISO
       });
     });
 
     setSarees(updatedSarees);
     setSales([...newSales, ...sales]);
     setCart([]); 
+    setExtraDiscount(0);
     setShowPaymentModal(false);
     setPaymentMethod('UPI'); // Reset default
     showNotification(`Sale Completed! ${cart.length} items sold.`);
@@ -475,7 +522,40 @@ export default function App() {
   // --- UI RENDER FUNCTIONS ---
 
   const renderDashboardView = () => {
-    const totalRevenue = sales.reduce((sum, sale) => sum + (sale.salePrice || 0), 0);
+    // Advanced Profit & Revenue Calculations
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = startOfDay - (6 * 24 * 60 * 60 * 1000); // Past 7 days (Rolling week)
+
+    let dailySales = 0, dailyProfit = 0;
+    let weeklySales = 0, weeklyProfit = 0;
+    let lifetimeSales = 0, lifetimeProfit = 0;
+
+    sales.forEach(sale => {
+      // Fallback for older legacy test data
+      const saleTime = sale.timestampISO ? new Date(sale.timestampISO).getTime() : new Date(sale.saleDate).getTime();
+      const price = sale.salePrice || 0;
+      
+      // Calculate profit directly or fallback to older lookup logic
+      let profit = sale.profit !== undefined ? sale.profit : 0;
+      if (profit === 0 && sale.profit === undefined) {
+          const originalItem = sarees.find(s => s.code === sale.sareeCode);
+          profit = price - (originalItem?.cp || 0);
+      }
+
+      lifetimeSales += price;
+      lifetimeProfit += profit;
+
+      if (saleTime >= startOfDay) {
+        dailySales += price;
+        dailyProfit += profit;
+      }
+      if (saleTime >= startOfWeek) {
+        weeklySales += price;
+        weeklyProfit += profit;
+      }
+    });
+
     const cashRevenue = sales.filter(s => s.paymentMethod === 'Cash').reduce((sum, sale) => sum + (sale.salePrice || 0), 0);
     const upiRevenue = sales.filter(s => s.paymentMethod === 'UPI').reduce((sum, sale) => sum + (sale.salePrice || 0), 0);
 
@@ -488,30 +568,56 @@ export default function App() {
           Exhibition Dashboard
         </h2>
         
+        <h3 className="font-bold text-gray-900 mb-[-12px] flex items-center gap-2">
+          Sales & Profit Metrics
+        </h3>
+
+        {/* New Advanced Analytics Grid */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+            {/* Today */}
+            <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm col-span-2 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white">
+                <div>
+                    <p className="text-xs text-blue-800 font-bold uppercase">Today's Revenue</p>
+                    <p className="text-3xl font-black text-gray-900">₹{dailySales.toLocaleString()}</p>
+                </div>
+                <div className="text-right">
+                    <p className="text-xs text-green-700 font-bold uppercase">Today's Profit</p>
+                    <p className="text-2xl font-black text-green-600">+₹{dailyProfit.toLocaleString()}</p>
+                </div>
+            </div>
+            {/* Weekly */}
+            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                <p className="text-[10px] text-gray-500 font-bold uppercase">7-Day Revenue</p>
+                <p className="text-lg font-bold text-gray-900">₹{weeklySales.toLocaleString()}</p>
+                <p className="text-[11px] text-green-600 font-bold mt-1">+₹{weeklyProfit.toLocaleString()} Profit</p>
+            </div>
+            {/* Lifetime */}
+            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                <p className="text-[10px] text-gray-500 font-bold uppercase">Lifetime Revenue</p>
+                <p className="text-lg font-bold text-purple-900">₹{lifetimeSales.toLocaleString()}</p>
+                <p className="text-[11px] text-green-600 font-bold mt-1">+₹{lifetimeProfit.toLocaleString()} Profit</p>
+            </div>
+        </div>
+
+        {/* Existing Quick Stats */}
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-blue-100 p-4 rounded-xl shadow-sm border border-blue-200">
-            <p className="text-blue-900 text-sm font-semibold">Available Inventory</p>
+            <p className="text-blue-900 text-sm font-semibold">Available Stock</p>
             <p className="text-3xl font-bold text-blue-900">{sarees.filter(s => s.status === 'available').length}</p>
           </div>
           <div className="bg-green-100 p-4 rounded-xl shadow-sm border border-green-200">
-            <p className="text-green-900 text-sm font-semibold">Items Sold</p>
+            <p className="text-green-900 text-sm font-semibold">Total Items Sold</p>
             <p className="text-3xl font-bold text-green-900">{sales.length}</p>
           </div>
-          <div className="bg-purple-100 p-4 rounded-xl shadow-sm border border-purple-200 col-span-2">
-            <p className="text-purple-900 text-sm font-semibold">Total Revenue</p>
-            <p className="text-3xl font-bold text-purple-900 mb-2">
-              ₹{totalRevenue.toLocaleString()}
-            </p>
-            <div className="flex justify-between border-t border-purple-200 pt-3 mt-1">
+          <div className="bg-gray-100 p-4 rounded-xl shadow-sm border border-gray-200 col-span-2 flex justify-between items-center">
               <div>
-                <p className="text-purple-800 text-xs font-semibold uppercase">Cash Sales</p>
-                <p className="text-lg font-bold text-purple-900">₹{cashRevenue.toLocaleString()}</p>
+                <p className="text-gray-600 text-xs font-semibold uppercase">Total Cash</p>
+                <p className="text-lg font-bold text-gray-900">₹{cashRevenue.toLocaleString()}</p>
               </div>
               <div className="text-right">
-                <p className="text-purple-800 text-xs font-semibold uppercase">UPI Sales</p>
-                <p className="text-lg font-bold text-purple-900">₹{upiRevenue.toLocaleString()}</p>
+                <p className="text-gray-600 text-xs font-semibold uppercase">Total UPI</p>
+                <p className="text-lg font-bold text-gray-900">₹{upiRevenue.toLocaleString()}</p>
               </div>
-            </div>
           </div>
         </div>
 
@@ -519,7 +625,7 @@ export default function App() {
           <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
             <Download size={18} className="text-blue-600" /> End of Day Backup
           </h3>
-          <p className="text-sm text-gray-700 mb-4">Export offline data to a CSV file to sync with main computer.</p>
+          <p className="text-sm text-gray-700 mb-4">Export offline data to a CSV file. (Sales export now includes CP & Profit).</p>
           <div className="flex gap-2">
             <button onClick={() => exportToCSV(sales, 'Sales_Log')} className="flex-1 bg-green-50 text-green-800 border border-green-300 font-semibold py-3 rounded-lg hover:bg-green-100 transition-colors text-sm">
               Export Sales
@@ -555,33 +661,23 @@ export default function App() {
 
       <div className="flex items-center gap-4 my-2">
         <div className="h-px bg-gray-300 flex-1"></div>
-        <span className="text-xs text-gray-500 font-bold uppercase">Or Add Single Item</span>
+        <span className="text-xs text-gray-500 font-bold uppercase">Or Generate Stock</span>
         <div className="h-px bg-gray-300 flex-1"></div>
       </div>
 
-      {/* Manual Single Entry Form */}
+      {/* Manual Generator Form */}
       <form onSubmit={handleAddSaree} className="space-y-4 bg-white p-5 rounded-xl shadow-sm border border-gray-200">
-        <div>
-          <label className="block text-sm font-bold text-gray-900 mb-1">Product Code</label>
-          <input required name="code" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none uppercase font-mono" placeholder="e.g. SAR101" />
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-gray-900 mb-1">Type</label>
-          <input name="type" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none" placeholder="e.g. Cotton" />
-        </div>
-        
         <div className="flex gap-2 w-full">
-          <div className="flex-1 min-w-0">
+          <div className="flex-[2] min-w-0">
             <label className="block text-sm font-bold text-gray-900 mb-1">Shop Name</label>
-            <input name="shopName" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none" placeholder="e.g. Sharma Textiles" />
+            <input required name="shopName" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none" placeholder="e.g. Chaitali Nagpur" />
           </div>
           <div className="flex-1 min-w-0">
             <label className="block text-sm font-bold text-gray-900 mb-1">Shop Code</label>
-            <input name="shopCode" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none uppercase font-mono" placeholder="e.g. SHARMA01" />
+            <input required name="shopCode" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none uppercase font-mono" placeholder="e.g. CKC" />
           </div>
         </div>
         
-        {/* Uses flex layout to squeeze tightly on narrow screens without overflowing */}
         <div className="flex gap-2 w-full">
           <div className="flex-1 min-w-0">
             <label className="block text-xs font-bold text-gray-900 mb-1">CP (Cost)</label>
@@ -596,50 +692,124 @@ export default function App() {
             <input required name="asp60" type="number" min="0" className="w-full p-2 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none" placeholder="0" />
           </div>
         </div>
+        
+        <div className="flex gap-2 w-full">
+          <div className="flex-1 min-w-0">
+            <label className="block text-sm font-bold text-gray-900 mb-1">Quantity</label>
+            <input required name="quantity" type="number" min="1" max="26" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none" placeholder="e.g. 6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <label className="block text-sm font-bold text-gray-900 mb-1">Serial No.</label>
+            <input required name="serialNo" type="text" className="w-full p-3 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none font-mono" placeholder="e.g. 01" />
+          </div>
+        </div>
+
+        {/* Info box explaining the auto-generation to staff */}
+        <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 mt-2 text-xs text-blue-800">
+          <p className="font-semibold mb-1">Auto-Generated Product Code:</p>
+          <ul className="list-disc pl-4 space-y-0.5 opacity-80">
+            <li><b>Format:</b> [ShopCode]SZ[ASP60_Rev]X[Serial][a-z]</li>
+            <li><b>Example:</b> CKCSZ4241X01a</li>
+          </ul>
+        </div>
+
         <button type="submit" className="w-full bg-blue-600 text-white font-bold py-4 mt-2 rounded-lg hover:bg-blue-700 flex justify-center items-center gap-2">
-          <PlusCircle size={20} /> Add to Inventory
+          <PlusCircle size={20} /> Generate & Add Stock
         </button>
       </form>
     </div>
   );
 
-  const renderInventoryListView = () => (
-    <div className="space-y-4 flex-1 w-full">
-      <h2 className="text-xl font-bold text-gray-900 mb-4">Current Inventory</h2>
-      {sarees.length === 0 ? (
-        <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
-           <p className="text-gray-600 font-medium">No sarees in inventory yet.</p>
+  const renderInventoryListView = () => {
+    // Apply Inventory Filter
+    const filteredSarees = sarees.filter(s => inventoryFilter === 'all' ? true : s.status === inventoryFilter);
+
+    return (
+      <div className="space-y-4 flex-1 w-full">
+        <div className="flex justify-between items-center mb-2">
+            <h2 className="text-xl font-bold text-gray-900">Inventory Status</h2>
+            <Filter size={18} className="text-gray-500" />
         </div>
-      ) : (
-        <div className="space-y-3">
-          {sarees.map((saree) => (
-            <div key={saree.id} className={`p-4 rounded-xl border ${saree.status === 'sold' ? 'bg-gray-100 border-gray-300' : 'bg-white border-blue-200 shadow-sm'} flex justify-between items-center`}>
-              <div className="w-full">
-                <div className="flex justify-between items-start mb-1">
-                  <span className="font-mono bg-gray-200 text-gray-900 px-2 py-1 rounded text-sm font-bold">{saree.code}</span>
-                  {saree.status === 'sold' && <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-bold">SOLD</span>}
-                </div>
-                <h3 className={`font-bold ${saree.status === 'sold' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
-                  {saree.shopName} <span className="text-xs text-gray-500 font-mono font-normal ml-1">({saree.shopCode})</span>
-                </h3>
-                
-                <div className="flex gap-3 mt-2 text-sm">
-                  <div className="bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                    <span className="text-gray-500 text-xs block leading-none">MRP</span>
-                    <span className="font-bold text-gray-700">₹{saree.mrp}</span>
+        
+        {/* Inventory Filter Toggle */}
+        <div className="flex bg-gray-200 p-1 rounded-lg shrink-0 mb-4 shadow-inner">
+          <button onClick={() => setInventoryFilter('all')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${inventoryFilter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+            All ({sarees.length})
+          </button>
+          <button onClick={() => setInventoryFilter('available')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${inventoryFilter === 'available' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500'}`}>
+            Available ({sarees.filter(s => s.status === 'available').length})
+          </button>
+          <button onClick={() => setInventoryFilter('sold')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${inventoryFilter === 'sold' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}>
+            Sold ({sarees.filter(s => s.status === 'sold').length})
+          </button>
+        </div>
+
+        {filteredSarees.length === 0 ? (
+          <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
+             <p className="text-gray-600 font-medium">No items found for this filter.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredSarees.map((saree) => (
+              <div key={saree.id} className={`p-4 rounded-xl border ${saree.status === 'sold' ? 'bg-gray-50 border-gray-300' : 'bg-white border-blue-200 shadow-sm'} flex flex-col`}>
+                  
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-mono bg-gray-200 text-gray-900 px-2 py-1 rounded text-sm font-bold">{saree.code}</span>
+                    {saree.status === 'sold' ? (
+                        <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-bold">SOLD</span>
+                    ) : (
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-bold">AVAILABLE</span>
+                    )}
                   </div>
-                  <div className="bg-green-50 px-2 py-1 rounded border border-green-200">
-                    <span className="text-green-600 text-xs block leading-none">ASP60</span>
-                    <span className="font-bold text-green-700">₹{saree.asp60}</span>
+                  
+                  <h3 className={`font-bold ${saree.status === 'sold' ? 'text-gray-500' : 'text-gray-900'}`}>
+                    {saree.shopName} <span className="text-xs text-gray-500 font-mono font-normal ml-1">({saree.shopCode})</span>
+                  </h3>
+                  
+                  <div className="flex gap-3 mt-2 text-sm">
+                    <div className="bg-gray-100 px-2 py-1 rounded border border-gray-200">
+                      <span className="text-gray-500 text-xs block leading-none">MRP</span>
+                      <span className="font-bold text-gray-700">₹{saree.mrp}</span>
+                    </div>
+                    <div className="bg-green-50 px-2 py-1 rounded border border-green-200">
+                      <span className="text-green-600 text-xs block leading-none">ASP60</span>
+                      <span className="font-bold text-green-700">₹{saree.asp60}</span>
+                    </div>
                   </div>
-                </div>
+
+                  {/* PROFIT DISPLAY - Only visible if the item is sold */}
+                  {saree.status === 'sold' && (
+                      <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-end">
+                        <div>
+                          <span className="text-[10px] text-gray-500 font-bold uppercase block">Cost Price (CP)</span>
+                          <span className="font-bold text-gray-800 text-sm">₹{saree.cp}</span>
+                        </div>
+                        {(() => {
+                            const saleInfo = sales.find(s => s.sareeCode === saree.code);
+                            // Fallback profit calc for legacy data
+                            const calculatedProfit = saleInfo ? (saleInfo.profit !== undefined ? saleInfo.profit : (saleInfo.salePrice - saree.cp)) : 0;
+                            
+                            return saleInfo ? (
+                               <div className="text-right">
+                                 <span className="text-[10px] text-gray-500 font-bold uppercase block">Sold Price & Profit</span>
+                                 <div className="flex items-center gap-2 justify-end">
+                                    <span className="font-bold text-gray-900 text-base">₹{saleInfo.salePrice}</span>
+                                    <span className="font-black text-green-600 text-base bg-green-100 px-2 py-0.5 rounded-md">+₹{calculatedProfit}</span>
+                                 </div>
+                               </div>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">Sale log missing</span>
+                            );
+                        })()}
+                      </div>
+                  )}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderPointOfSaleView = () => (
     <div className="flex-1 flex flex-col w-full pb-10">
@@ -763,9 +933,27 @@ export default function App() {
           {/* Total and Checkout Button */}
           {cart.length > 0 && (
             <div className="mt-auto bg-white p-4 rounded-xl shadow-md border border-gray-200">
-              <div className="flex justify-between items-end mb-4">
-                <span className="text-gray-600 font-bold">Total Amount:</span>
-                <span className="text-3xl font-black text-gray-900">₹{calculateCartTotal().toLocaleString()}</span>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-gray-600 font-bold text-sm">Subtotal:</span>
+                <span className="text-gray-800 font-bold text-sm">₹{getCartSubtotal().toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-gray-600 font-bold text-sm">Extra Discount:</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-500 font-bold">₹</span>
+                  <input 
+                    type="number" 
+                    min="0" 
+                    value={extraDiscount || ''} 
+                    onChange={(e) => setExtraDiscount(parseFloat(e.target.value) || 0)} 
+                    className="w-24 p-1 border border-gray-300 rounded text-right font-bold outline-none focus:border-blue-500 text-sm"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-between items-end mb-4 pt-2 border-t border-gray-200">
+                <span className="text-gray-800 font-bold">Final Amount:</span>
+                <span className="text-3xl font-black text-gray-900">₹{getCartFinalTotal().toLocaleString()}</span>
               </div>
               <button 
                 onClick={() => setShowPaymentModal(true)}
@@ -811,6 +999,9 @@ export default function App() {
                 <div>
                   <p className="font-bold text-gray-900 font-mono text-lg">{sale.sareeCode}</p>
                   <p className="text-xs text-gray-500 mt-1">{sale.saleDate}</p>
+                  {sale.profit !== undefined && (
+                     <p className="text-[10px] text-green-600 font-bold mt-1">Profit: +₹{sale.profit}</p>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-green-700 text-lg">₹{sale.salePrice}</p>
@@ -865,7 +1056,7 @@ export default function App() {
         <div className="absolute inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 flex flex-col items-center shadow-2xl">
             <h2 className="text-xl font-black text-gray-900 mb-1">Receive Payment</h2>
-            <p className="text-gray-500 mb-4 text-sm text-center">Amount due: <b className="text-gray-900 text-lg">₹{calculateCartTotal().toLocaleString()}</b></p>
+            <p className="text-gray-500 mb-4 text-sm text-center">Amount due: <b className="text-gray-900 text-lg">₹{getCartFinalTotal().toLocaleString()}</b></p>
             
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 w-full flex flex-col items-center mb-6 justify-center">
               <p className="text-sm text-gray-600 text-center mb-4">Select payment method received:</p>
