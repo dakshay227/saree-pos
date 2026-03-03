@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter, RefreshCcw, Trash2 } from 'lucide-react';
+import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter, RefreshCcw, Trash2, Search, ChevronDown, ChevronUp } from 'lucide-react';
 
 // --- Configuration ---
 const RESET_PASSWORD = "9999"; // Add your secret numeric PIN here
@@ -57,9 +57,19 @@ export default function App() {
   const [extraDiscount, setExtraDiscount] = useState(0); 
   const [itemToDelete, setItemToDelete] = useState(null); // State for deleting item modal
   
+  // Sales Log State
+  const [salesTimeFilter, setSalesTimeFilter] = useState('today'); // 'today', '7day', 'all'
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState({});
+  
   // Inventory State
   const [inventoryFilter, setInventoryFilter] = useState('all'); // 'all', 'available', 'sold'
   const [shopFilter, setShopFilter] = useState('all'); // Filter by shop name
+
+  // Sales Log State
+  const [salesFilter, setSalesFilter] = useState('all'); // 'all', 'today', '7days'
+  const [salesSearch, setSalesSearch] = useState('');
+  const [expandedTx, setExpandedTx] = useState({}); // Keep track of expanded transactions
 
   // Hidden Reset States
   const [resetPassword, setResetPassword] = useState('');
@@ -159,6 +169,8 @@ export default function App() {
     setSales([]);
     setCart([]);
     setExtraDiscount(0);
+    setSalesSearchQuery('');
+    setExpandedGroups({});
     // Clear databases
     await setDBItem('saree_inventory', []);
     await setDBItem('saree_sales', []);
@@ -1163,8 +1175,28 @@ export default function App() {
   );
 
   const renderSalesLogView = () => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = startOfDay - (6 * 24 * 60 * 60 * 1000);
+
+    let displayedSales = sales;
+    const isSearching = salesSearchQuery.trim().length > 0;
+
+    // Apply Search vs Time Filters
+    if (isSearching) {
+      const q = salesSearchQuery.toLowerCase().trim();
+      displayedSales = sales.filter(s => s.sareeCode.toLowerCase().includes(q));
+    } else {
+      displayedSales = sales.filter(s => {
+        const saleTime = s.timestampISO ? new Date(s.timestampISO).getTime() : new Date(s.saleDate).getTime();
+        if (salesTimeFilter === 'today') return saleTime >= startOfDay;
+        if (salesTimeFilter === '7day') return saleTime >= startOfWeek;
+        return true;
+      });
+    }
+
     // Apply grouping by transaction timestamp
-    const groupedSales = sales.reduce((acc, sale) => {
+    const groupedSales = displayedSales.reduce((acc, sale) => {
       const groupId = sale.timestampISO || sale.saleDate;
       if (!acc[groupId]) {
         acc[groupId] = {
@@ -1192,50 +1224,101 @@ export default function App() {
 
     return (
       <div className="space-y-4 flex-1 w-full pb-4">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Sales Log</h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Sales Log</h2>
+        
+        {/* Search Bar */}
+        <div className="relative mb-3">
+           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+             <Search size={18} className="text-gray-400" />
+           </div>
+           <input
+             type="text"
+             placeholder="Search by Product Code..."
+             value={salesSearchQuery}
+             onChange={(e) => setSalesSearchQuery(e.target.value)}
+             className="w-full pl-10 pr-10 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-blue-500 shadow-sm font-mono text-sm"
+           />
+           {isSearching && (
+             <button onClick={() => setSalesSearchQuery('')} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600">
+               <X size={18} />
+             </button>
+           )}
+        </div>
+
+        {/* Time Filter Toggles (Hide if searching) */}
+        {!isSearching && (
+          <div className="flex bg-gray-200 p-1 rounded-lg shrink-0 mb-4 shadow-inner">
+            <button onClick={() => setSalesTimeFilter('today')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${salesTimeFilter === 'today' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Today</button>
+            <button onClick={() => setSalesTimeFilter('7day')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${salesTimeFilter === '7day' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>7 Days</button>
+            <button onClick={() => setSalesTimeFilter('all')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${salesTimeFilter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>All Time</button>
+          </div>
+        )}
+
+        {isSearching && (
+           <p className="text-xs text-blue-600 font-bold mb-2">Searching across all lifetime transactions...</p>
+        )}
+
         {groupedSalesArray.length === 0 ? (
           <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
-             <p className="text-gray-600 font-medium">No sales recorded yet.</p>
+             <p className="text-gray-600 font-medium">{isSearching ? 'No matching sales found.' : 'No sales recorded in this period.'}</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {groupedSalesArray.map((group) => (
-              <div key={group.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Transaction Header */}
-                <div className="bg-gray-50 p-3 border-b border-gray-200 flex justify-between items-center">
-                  <div>
-                    <p className="text-xs text-gray-500 font-bold uppercase mb-1">{group.time}</p>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold text-white ${group.paymentMethod === 'UPI' ? 'bg-blue-600' : 'bg-green-600'}`}>
-                        {group.paymentMethod || 'CASH'}
-                      </span>
-                      <span className="text-xs text-gray-500 font-medium">{group.items.length} item(s)</span>
+            {groupedSalesArray.map((group) => {
+              // Auto-expand if searching, otherwise use state
+              const isExpanded = isSearching || !!expandedGroups[group.id];
+              
+              return (
+                <div key={group.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  {/* Transaction Header - Clickable for Accordion */}
+                  <div 
+                    onClick={() => setExpandedGroups(prev => ({...prev, [group.id]: !prev[group.id]}))}
+                    className="bg-gray-50 p-3 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors"
+                  >
+                    <div>
+                      <p className="text-xs text-gray-500 font-bold uppercase mb-1">{group.time}</p>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold text-white ${group.paymentMethod === 'UPI' ? 'bg-blue-600' : 'bg-green-600'}`}>
+                          {group.paymentMethod || 'CASH'}
+                        </span>
+                        <span className="text-xs text-gray-500 font-medium">{group.items.length} item(s)</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-black text-gray-900 text-lg">₹{group.totalAmount}</p>
-                    <p className="text-[10px] text-green-600 font-bold">Total Profit: +₹{group.totalProfit}</p>
-                  </div>
-                </div>
-                
-                {/* Transaction Items List */}
-                <div className="divide-y divide-gray-100">
-                  {group.items.map((sale) => (
-                    <div key={sale.id} className="p-3 flex justify-between items-center bg-white hover:bg-gray-50">
+                    <div className="text-right flex items-center gap-3">
                       <div>
-                        <p className="font-bold text-gray-800 font-mono text-sm">{sale.sareeCode}</p>
-                        {sale.profit !== undefined && (
-                           <p className="text-[10px] text-green-600 font-medium mt-0.5">Profit: +₹{sale.profit}</p>
-                        )}
+                        <p className="font-black text-gray-900 text-lg">₹{group.totalAmount}</p>
+                        <p className="text-[10px] text-green-600 font-bold">Total Profit: +₹{group.totalProfit}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-gray-700 text-sm">₹{sale.salePrice}</p>
+                      <div className="text-gray-400">
+                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                       </div>
                     </div>
-                  ))}
+                  </div>
+                  
+                  {/* Transaction Items List - Collapsible */}
+                  {isExpanded && (
+                    <div className="divide-y divide-gray-100">
+                      {group.items.map((sale) => {
+                        const isMatch = isSearching && sale.sareeCode.toLowerCase().includes(salesSearchQuery.toLowerCase().trim());
+                        return (
+                          <div key={sale.id} className={`p-3 flex justify-between items-center hover:bg-gray-50 transition-colors ${isMatch ? 'bg-yellow-100' : 'bg-white'}`}>
+                            <div>
+                              <p className="font-bold text-gray-800 font-mono text-sm">{sale.sareeCode}</p>
+                              {sale.profit !== undefined && (
+                                 <p className="text-[10px] text-green-600 font-medium mt-0.5">Profit: +₹{sale.profit}</p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <p className="font-bold text-gray-700 text-sm">₹{sale.salePrice}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
