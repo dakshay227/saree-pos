@@ -1162,39 +1162,85 @@ export default function App() {
     </div>
   );
 
-  const renderSalesLogView = () => (
-    <div className="space-y-4 flex-1 w-full">
-      <h2 className="text-xl font-bold text-gray-900 mb-4">Sales Log</h2>
-      {sales.length === 0 ? (
-        <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
-           <p className="text-gray-600 font-medium">No sales recorded yet.</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="divide-y divide-gray-200">
-            {sales.map((sale) => (
-              <div key={sale.id} className="p-4 flex justify-between items-center bg-white hover:bg-gray-50">
-                <div>
-                  <p className="font-bold text-gray-900 font-mono text-lg">{sale.sareeCode}</p>
-                  <p className="text-xs text-gray-500 mt-1">{sale.saleDate}</p>
-                  {sale.profit !== undefined && (
-                     <p className="text-[10px] text-green-600 font-bold mt-1">Profit: +₹{sale.profit}</p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-green-700 text-lg">₹{sale.salePrice}</p>
-                  <div className="flex items-center gap-1 text-xs text-gray-600 mt-1 justify-end font-medium">
-                    <span className="bg-gray-100 px-2 py-0.5 rounded text-[10px] uppercase font-bold text-gray-500">{sale.paymentMethod || 'CASH'}</span>
-                    <CheckCircle2 size={14} className="text-green-600" /> Paid
+  const renderSalesLogView = () => {
+    // Apply grouping by transaction timestamp
+    const groupedSales = sales.reduce((acc, sale) => {
+      const groupId = sale.timestampISO || sale.saleDate;
+      if (!acc[groupId]) {
+        acc[groupId] = {
+          id: groupId,
+          time: sale.saleDate,
+          timestampISO: sale.timestampISO,
+          paymentMethod: sale.paymentMethod,
+          totalAmount: 0,
+          totalProfit: 0,
+          items: []
+        };
+      }
+      acc[groupId].totalAmount += (sale.salePrice || 0);
+      acc[groupId].totalProfit += (sale.profit || 0);
+      acc[groupId].items.push(sale);
+      return acc;
+    }, {});
+
+    // Sort transactions from newest to oldest
+    const groupedSalesArray = Object.values(groupedSales).sort((a, b) => {
+       const timeA = a.timestampISO ? new Date(a.timestampISO).getTime() : new Date(a.time).getTime();
+       const timeB = b.timestampISO ? new Date(b.timestampISO).getTime() : new Date(b.time).getTime();
+       return timeB - timeA;
+    });
+
+    return (
+      <div className="space-y-4 flex-1 w-full pb-4">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">Sales Log</h2>
+        {groupedSalesArray.length === 0 ? (
+          <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
+             <p className="text-gray-600 font-medium">No sales recorded yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {groupedSalesArray.map((group) => (
+              <div key={group.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                {/* Transaction Header */}
+                <div className="bg-gray-50 p-3 border-b border-gray-200 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-gray-500 font-bold uppercase mb-1">{group.time}</p>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold text-white ${group.paymentMethod === 'UPI' ? 'bg-blue-600' : 'bg-green-600'}`}>
+                        {group.paymentMethod || 'CASH'}
+                      </span>
+                      <span className="text-xs text-gray-500 font-medium">{group.items.length} item(s)</span>
+                    </div>
                   </div>
+                  <div className="text-right">
+                    <p className="font-black text-gray-900 text-lg">₹{group.totalAmount}</p>
+                    <p className="text-[10px] text-green-600 font-bold">Total Profit: +₹{group.totalProfit}</p>
+                  </div>
+                </div>
+                
+                {/* Transaction Items List */}
+                <div className="divide-y divide-gray-100">
+                  {group.items.map((sale) => (
+                    <div key={sale.id} className="p-3 flex justify-between items-center bg-white hover:bg-gray-50">
+                      <div>
+                        <p className="font-bold text-gray-800 font-mono text-sm">{sale.sareeCode}</p>
+                        {sale.profit !== undefined && (
+                           <p className="text-[10px] text-green-600 font-medium mt-0.5">Profit: +₹{sale.profit}</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-gray-700 text-sm">₹{sale.salePrice}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-gray-100 flex flex-col font-sans overflow-hidden text-gray-900 sm:shadow-2xl sm:border-x border-gray-300">
