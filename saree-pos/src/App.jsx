@@ -622,6 +622,17 @@ export default function App() {
     exportToCSV(labelData, 'Available_Labels_Print');
   };
 
+  const exportAvailableStockCSV = () => {
+    const availableSarees = sarees.filter(s => s.status === 'available');
+    
+    if (availableSarees.length === 0) {
+      showNotification('No available items to export!', 'error');
+      return;
+    }
+
+    exportToCSV(availableSarees, 'Available_Inventory');
+  };
+
   // --- UI RENDER FUNCTIONS ---
 
   const renderDashboardView = () => {
@@ -752,13 +763,18 @@ export default function App() {
                 Export Sales
               </button>
               <button onClick={() => exportToCSV(sarees, 'Inventory_Master')} className="flex-1 bg-blue-50 text-blue-800 border border-blue-300 font-semibold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs">
-                Export Inventory
+                Export All Inventory
               </button>
             </div>
-            {/* Added Print Label Export Button */}
-            <button onClick={exportAvailableLabelsCSV} className="w-full bg-indigo-50 text-indigo-800 border border-indigo-300 font-semibold py-2 rounded-lg hover:bg-indigo-100 transition-colors text-xs flex justify-center items-center gap-2">
-              <Download size={14} /> Export Available Stock for Labels
-            </button>
+            <div className="flex gap-2">
+               <button onClick={exportAvailableStockCSV} className="flex-1 bg-teal-50 text-teal-800 border border-teal-300 font-semibold py-2 rounded-lg hover:bg-teal-100 transition-colors text-xs flex justify-center items-center gap-2">
+                 <Download size={14} /> Export Available Stock
+               </button>
+               {/* Added Print Label Export Button */}
+               <button onClick={exportAvailableLabelsCSV} className="flex-1 bg-indigo-50 text-indigo-800 border border-indigo-300 font-semibold py-2 rounded-lg hover:bg-indigo-100 transition-colors text-xs flex justify-center items-center gap-2">
+                 <Download size={14} /> Export Labels Print
+               </button>
+            </div>
           </div>
         </div>
       </div>
