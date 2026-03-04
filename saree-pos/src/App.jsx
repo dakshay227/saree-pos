@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter, RefreshCcw, Trash2, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Package, PlusCircle, ScanLine, ListOrdered, Tag, CheckCircle2, AlertCircle, LayoutDashboard, Download, Camera, X, Upload, Filter, RefreshCcw, Trash2, Search, ChevronDown, ChevronUp, Settings, ArrowRightLeft } from 'lucide-react';
 
 // --- Configuration ---
 const RESET_PASSWORD = "9999"; // Add your secret numeric PIN here
@@ -56,6 +56,7 @@ export default function App() {
   const [showResetModal, setShowResetModal] = useState(false); // Reset confirmation state
   const [extraDiscount, setExtraDiscount] = useState(0); 
   const [itemToDelete, setItemToDelete] = useState(null); // State for deleting item modal
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false); // Dashboard tools toggle
   
   // Sales Log State
   const [salesTimeFilter, setSalesTimeFilter] = useState('today'); // 'today', '7day', 'all'
@@ -171,6 +172,7 @@ export default function App() {
     setExtraDiscount(0);
     setSalesSearchQuery('');
     setExpandedGroups({});
+    setShowAdvancedTools(false);
     // Clear databases
     await setDBItem('saree_inventory', []);
     await setDBItem('saree_sales', []);
@@ -418,6 +420,21 @@ export default function App() {
     setShowPaymentModal(false);
     setPaymentMethod('UPI'); // Reset default
     showNotification(`Sale Completed! ${cart.length} items sold.`);
+  };
+
+  const togglePaymentMethod = (transactionId) => {
+    const updatedSales = sales.map(sale => {
+      const saleGroupId = sale.timestampISO || sale.saleDate;
+      if (saleGroupId === transactionId) {
+        return {
+          ...sale,
+          paymentMethod: sale.paymentMethod === 'UPI' ? 'Cash' : 'UPI'
+        };
+      }
+      return sale;
+    });
+    setSales(updatedSales);
+    showNotification('Payment method updated.');
   };
 
   // --- CAMERA SCANNER LOGIC ---
@@ -748,47 +765,62 @@ export default function App() {
           </div>
         </div>
 
-        {/* Database Sync / Backup & Restore Block */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-purple-200 mt-2">
-          <h3 className="font-bold text-purple-900 mb-2 flex items-center gap-2 text-lg">
-            <RefreshCcw size={22} /> Device Sync & Restore
-          </h3>
-          <p className="text-sm text-gray-700 mb-4">Transfer all inventory and sales data exactly as is to a new phone via JSON.</p>
-          <div className="flex gap-3">
-            <button onClick={handleExportBackup} className="flex-1 bg-purple-50 text-purple-800 border border-purple-300 font-semibold py-3 rounded-lg hover:bg-purple-100 transition-colors text-sm flex items-center justify-center gap-1">
-              <Download size={18} /> Backup
-            </button>
-            <label className="flex-1 bg-orange-50 text-orange-800 border border-orange-300 font-semibold py-3 rounded-lg hover:bg-orange-100 transition-colors text-sm flex items-center justify-center gap-1 cursor-pointer">
-              <Upload size={18} /> Restore
-              <input type="file" className="hidden" accept=".json" onChange={handleRestoreBackup} />
-            </label>
-          </div>
+        {/* Advanced Tools Toggle */}
+        <div className="mt-4">
+          <button
+            onClick={() => setShowAdvancedTools(!showAdvancedTools)}
+            className="w-full bg-gray-200 text-gray-800 font-bold py-4 rounded-xl hover:bg-gray-300 transition-colors flex justify-between items-center px-5 shadow-sm text-base"
+          >
+            <span className="flex items-center gap-2"><Settings size={22} /> Sync, Backup & Export</span>
+            {showAdvancedTools ? <ChevronUp size={22} /> : <ChevronDown size={22} />}
+          </button>
         </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mt-2">
-          <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2 text-lg">
-            <Download size={22} className="text-blue-600" /> Excel CSV Exports
-          </h3>
-          <p className="text-sm text-gray-700 mb-4">Download spreadsheet versions of your data for end of day accounting.</p>
-          <div className="flex flex-col gap-3">
-            <div className="flex gap-3">
-              <button onClick={() => exportToCSV(sales, 'Sales_Log')} className="flex-1 bg-green-50 text-green-800 border border-green-300 font-semibold py-3 rounded-lg hover:bg-green-100 transition-colors text-sm">
-                Export Sales
-              </button>
-              <button onClick={() => exportToCSV(sarees, 'Inventory_Master')} className="flex-1 bg-blue-50 text-blue-800 border border-blue-300 font-semibold py-3 rounded-lg hover:bg-blue-100 transition-colors text-sm">
-                Export All Inv.
-              </button>
+        {showAdvancedTools && (
+          <div className="space-y-4 mt-4">
+            {/* Database Sync / Backup & Restore Block */}
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-purple-200">
+              <h3 className="font-bold text-purple-900 mb-2 flex items-center gap-2 text-lg">
+                <RefreshCcw size={22} /> Device Sync & Restore
+              </h3>
+              <p className="text-sm text-gray-700 mb-4">Transfer all inventory and sales data exactly as is to a new phone via JSON.</p>
+              <div className="flex gap-3">
+                <button onClick={handleExportBackup} className="flex-1 bg-purple-50 text-purple-800 border border-purple-300 font-semibold py-3 rounded-lg hover:bg-purple-100 transition-colors text-sm flex items-center justify-center gap-1">
+                  <Download size={18} /> Backup
+                </button>
+                <label className="flex-1 bg-orange-50 text-orange-800 border border-orange-300 font-semibold py-3 rounded-lg hover:bg-orange-100 transition-colors text-sm flex items-center justify-center gap-1 cursor-pointer">
+                  <Upload size={18} /> Restore
+                  <input type="file" className="hidden" accept=".json" onChange={handleRestoreBackup} />
+                </label>
+              </div>
             </div>
-            <div className="flex gap-3">
-               <button onClick={exportAvailableStockCSV} className="flex-1 bg-teal-50 text-teal-800 border border-teal-300 font-semibold py-3 rounded-lg hover:bg-teal-100 transition-colors text-sm flex justify-center items-center gap-2">
-                 <Download size={18} /> Export Available
-               </button>
-               <button onClick={exportNewLabelsCSV} className="flex-1 bg-indigo-50 text-indigo-800 border border-indigo-300 font-semibold py-3 rounded-lg hover:bg-indigo-100 transition-colors text-sm flex justify-center items-center gap-2">
-                 <Download size={18} /> Export Labels
-               </button>
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mt-2">
+              <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2 text-lg">
+                <Download size={22} className="text-blue-600" /> Excel CSV Exports
+              </h3>
+              <p className="text-sm text-gray-700 mb-4">Download spreadsheet versions of your data for end of day accounting.</p>
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-3">
+                  <button onClick={() => exportToCSV(sales, 'Sales_Log')} className="flex-1 bg-green-50 text-green-800 border border-green-300 font-semibold py-3 rounded-lg hover:bg-green-100 transition-colors text-sm">
+                    Export Sales
+                  </button>
+                  <button onClick={() => exportToCSV(sarees, 'Inventory_Master')} className="flex-1 bg-blue-50 text-blue-800 border border-blue-300 font-semibold py-3 rounded-lg hover:bg-blue-100 transition-colors text-sm">
+                    Export All Inv.
+                  </button>
+                </div>
+                <div className="flex gap-3">
+                   <button onClick={exportAvailableStockCSV} className="flex-1 bg-teal-50 text-teal-800 border border-teal-300 font-semibold py-3 rounded-lg hover:bg-teal-100 transition-colors text-sm flex justify-center items-center gap-2">
+                     <Download size={18} /> Export Available
+                   </button>
+                   <button onClick={exportNewLabelsCSV} className="flex-1 bg-indigo-50 text-indigo-800 border border-indigo-300 font-semibold py-3 rounded-lg hover:bg-indigo-100 transition-colors text-sm flex justify-center items-center gap-2">
+                     <Download size={18} /> Export Labels
+                   </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -1298,9 +1330,16 @@ export default function App() {
                     <div>
                       <p className="text-sm text-gray-500 font-bold uppercase mb-1.5">{group.time}</p>
                       <div className="flex items-center gap-2">
-                        <span className={`px-2.5 py-1 rounded-md text-xs uppercase font-bold text-white ${group.paymentMethod === 'UPI' ? 'bg-blue-600' : 'bg-green-600'}`}>
-                          {group.paymentMethod || 'CASH'}
-                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePaymentMethod(group.id);
+                          }}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs uppercase font-bold text-white shadow-sm transition-transform active:scale-95 ${group.paymentMethod === 'UPI' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}
+                          title="Click to switch payment method"
+                        >
+                          {group.paymentMethod || 'CASH'} <ArrowRightLeft size={12} />
+                        </button>
                         <span className="text-sm text-gray-600 font-bold">{group.items.length} item(s)</span>
                       </div>
                     </div>
